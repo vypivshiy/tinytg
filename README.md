@@ -1,95 +1,56 @@
-# tg-mini
-minimal telegram botapi lib with zero dependencies 
+# tinytg
+
+Minimal telegram botapi implementation with ZERO dependencies
 
 # Why
 
-The Telegram Bot API is one of the popular ways to implement interfaces for various automation tasks.
+Telegram bot api is one of the popular and simple solutions as an interface for automating various tasks.
 
-Frameworks are a good tool for writing bots, but when **the task is small and simple**, their functionality is too excessive. 
-Or sometimes they are often long or difficult to understand 🤪.
+**This project is not intended to solve all use cases that can be achieved with aiogram, telegrinder, pyTelegramBotAPI 
+and other telegram bot api wrappers.**
+
+**The intent is to provide a lightweight tool that simplifies some of the most common use cases for developers.**  
+
+# Features
+
+- Module size have ~300 lines of code
+- ZERO dependencies, sent http request logic usage [thttp](https://github.com/sesh/thttp) (standard urllib wrapper)
+- Sending messages
+- Reply messages
+- Sending a document, photo, audio, video, voice files
+- Primitive message events handling rules
+- Primitive .env file reader
 
 # install
 
 ```sh
-wget https://raw.githubusercontent.com/vypivshiy/tg-mini/main/tg_mini.py
-# or via curl
-curl wget https://raw.githubusercontent.com/vypivshiy/tg-mini/main/tg_mini.py
+wget https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py
 ```
 
+or via curl:
 
-# Features
+```sh
+curl wget https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py > tinytg.py
+```
 
-- Module size ~150 lines of code
-- No dependencies, requests are sent using urllib
-- Sending messages
-- Sending documents
-- Primitive message handling rules
+# Usage
 
-# usage
-
-1. create env file or pass bot token into a code (not recommended):
+- create `.env` file in file project:
 
 ```env
 # your bot token
 TOKEN=YOUR_BOT_TOKEN
 # update polling interval
-POLLING_INTERVAL=1 
+POLLING_INTERVAL=1
+# allowed DEBUG levels
+# CRITICAL = 50
+# ERROR = 40
+# WARNING = 30
+# INFO = 20
+# DEBUG = 10
+LOG_LEVEL=DEBUG
 ```
 
-2. simple code:
-   
-```python
-from tg_mini import Bot, M_CHAT, F_COMMAND, F_ALLOW_USERS
+or pass bot token into a code (not recommended)
 
-
-bot = Bot()
-
-# admin filter
-F_ADMINS = F_ALLOW_USERS(1, 2, 3, 539024411)  
-
-
-@bot.on_message(F_COMMAND('/echo'))
-def echo(m: dict):
-    chat = M_CHAT(m)  # extract chat_id shortcut
-    bot.api.send_message(chat, f"your says: {m['text'].lstrip('/echo ')}")
-
-
-@bot.on_message(F_ADMINS, F_COMMAND('/admin'))
-def secret_admin_panel(m: dict):
-    chat = M_CHAT(m)  # extract chat_id shortcut
-    bot.api.send_message(chat, "wow, hallo admin!")
-
-
-@bot.on_message(F_COMMAND('/source'))
-def send_code(m: dict):
-    chat = M_CHAT(m)  # extract chat_id shortcut
-    bot.api.send_document('tg_mini.py', chat)
-    bot.api.send_message(chat, "my source code :-)")
-    
-    
-bot.polling()  # run bot
-```
-
-3. custom rules
-
-The rules have a dictionary structure like: `{'key': function(c)}` and they process the [Update](https://core.telegram.org/bots/api#update) object.
-
-```python
-from tg_mini import Bot, M_CHAT, F_COMMAND
-
-
-bot = Bot()
-
-# text should be less than 150
-TEXT_LEN_RULE = {'text': lambda c: len(c) < 150}
-
-
-@bot.on_message(F_COMMAND('/echo'),
-                TEXT_LEN_RULE)
-def echo(m: dict):
-    chat = M_CHAT(m)  # extract chat_id shortcut
-    bot.api.send_message(chat, f"your says: {m['text'].lstrip('/echo ')}")
-
-
-bot.polling()
-```
+- See [example](example.py) code how-to usage

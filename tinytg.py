@@ -15,9 +15,8 @@ import ssl
 from base64 import b64encode
 from collections import namedtuple
 from http.cookiejar import CookieJar
- 
 from time import sleep
-from typing import Callable, Dict, Optional, List, Tuple, TypeVar, Union, BinaryIO
+from typing import Callable, Optional, List, Tuple, BinaryIO, NamedTuple
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import (
@@ -25,19 +24,11 @@ from urllib.request import (
 )
 from uuid import uuid4
 
-T = TypeVar('T')
-T_RULE = Dict[str, Callable[[T], bool]]
-T_RULES = Tuple[T_RULE, ...]
-T_MSG_EVENT = Callable[[Dict[str, T]], None]
-T_CALLBACKS = List[Tuple[T_MSG_EVENT, T_RULES]]
 Response = namedtuple("Response", "request content json status url headers cookiejar")
+NoRedirect = type('NoRedirect', (HTTPRedirectHandler,),
+                  {'redirect_request': lambda self, req, fp, code, msg, headers, newurl: None})
 
-
-class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
+# thttp
 def request(method, url, params=None, json=None, data=None, headers=None,
             verify=True, redirect=True, cookiejar=None, basic_auth=None,
             timeout=60, files=None):
@@ -62,7 +53,7 @@ def request(method, url, params=None, json=None, data=None, headers=None,
         raise ValueError("Unknown method type")
 
     if params:
-        url += "?" + urlencode(params)
+        url += f"?{urlencode(params)}"
 
     if json and data:
         raise ValueError("Cannot provide both json and data parameters")
@@ -126,8 +117,8 @@ def _encode_multipart_formdata(files):
 
         data += (
                 b"--" + boundary.encode() + b"\r\n"
-                b'Content-Disposition: form-data; name="' + key.encode() + b'"; filename="' + filename.encode() + b'"\r\n'
-                b"Content-Type: " + mime_type.encode() + b"\r\n\r\n"
+                                            b'Content-Disposition: form-data; name="' + key.encode() + b'"; filename="' + filename.encode() + b'"\r\n'
+                                                                                                                                              b"Content-Type: " + mime_type.encode() + b"\r\n\r\n"
                 + file_data + b"\r\n"
         )
 
@@ -136,7 +127,7 @@ def _encode_multipart_formdata(files):
 
 
 def _parse_response(response, ulib_request, cookiejar, is_error=False):
-    status = response.getcode() if not is_error else response.code
+    status = response.code if is_error else response.getcode()
     content = response.read()
     headers = {k.lower(): v for k, v in response.info().items()}
 
@@ -150,6 +141,46 @@ def _parse_response(response, ulib_request, cookiejar, is_error=False):
     return Response(request=ulib_request, content=content, json=json_content, status=status,
                     url=response.geturl(), headers=headers, cookiejar=cookiejar)
 
+# telegram event types
+class Document(NamedTuple):
+    file_name: str
+    mime_type: str
+    file_id: str
+    file_unique_id: str
+    file_size: int
+
+class FromUser(NamedTuple):
+    id: int
+    is_bot: bool
+    first_name: str
+    language_code: str
+    username: Optional[str] = None
+
+class Chat(NamedTuple):
+    id: int
+    type: str
+    first_name: str
+    username: Optional[str] = None
+
+class Message(NamedTuple):
+    message_id: int
+    from_: FromUser
+    date: int
+    chat: Chat
+    text: Optional[str] = None
+    entities: Optional[List] = []
+    document: Optional[Document] = None
+
+class MessageEvent(NamedTuple):
+    update_id: int
+    message: Message
+
+
+T_RULE = Callable[[Message], bool]
+T_RULES = Tuple[T_RULE, ...]
+T_MSG_EVENT = Callable[[Message], None]
+T_CALLBACKS = List[Tuple[T_MSG_EVENT, T_RULES]]
+
 
 def read_env(env_file='.env'):
     """simple env files reader"""
@@ -158,38 +189,12 @@ def read_env(env_file='.env'):
                 (line.split('=', 1) for line in f if line.strip() and not line.strip().startswith('#'))}
 
 
-def M_CHAT(msg: Dict) -> int:
-    """extract chat_id shortcut"""
-    return msg['chat']['id']
-
-def M_MSG_ID(msg: Dict) -> int:
-    return msg['message_id']
-
-def F_ALLOW_USERS(*user_ids) -> T_RULE:
-    """return true if update event contains provided user_ids"""
-    return {"chat": lambda c: c['id'] in user_ids}
-
-
-def F_IS_BOT() -> T_RULE:
-    """return true if update event sent by bot"""
-    return {'from': lambda c: c['is_bot'] == True}
-
-
-def F_IS_USER() -> T_RULE:
-    """return true if update event sent by user"""
-    return {'from': lambda c: c['is_bot'] == False}
-
-
-def F_COMMAND(command: str, allow_bot: bool = False) -> T_RULE:
-    """dummy command wrapper (extract arguments exclude)"""
-    return {'text': lambda c: bool(re.match(command, c)),
-            'from': lambda c: c['is_bot'] == allow_bot}
-
-
-def F_RE(pattern: Union[str, re.Pattern[str]]) -> T_RULE:
-    """check text by regex pattern"""
-    return {'text': lambda c: bool(re.search(pattern, c))}
-
+F_IS_BOT = lambda m: m.from_.is_bot == True
+F_IS_USER = lambda m: m.from_.is_bot == False
+F_ALLOW_USERS = lambda *user_ids: lambda m: m.from_.id in user_ids
+F_COMMAND = lambda command: lambda m: bool(m.text) and bool(re.match(command, m.text)) and m.from_.is_bot == False
+F_RE = lambda pattern: lambda m: bool(m.text) and re.search(pattern, m.text)
+F_IS_ATTACHMENT = lambda m: bool(m.document)
 
 logging.basicConfig(format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
                     level=getattr(logging, read_env().get('LOG_LEVEL', 'DEBUG')))
@@ -236,8 +241,7 @@ class API:
                                          data={'chat_id': chat_id, 'text': text, 'reply_to_message_id': message_id})
 
     def send_document(self, file_ctx: BinaryIO, chat_id: int):
-        # this api files sent cannot provide normal data form handling
-        # send it as a params form
+        # this api files sent cannot provide normal data form handling. send it as a params form
         return self.try_send_api_request(
             'POST', 'sendDocument', files={'document': file_ctx}, params={'chat_id': chat_id})
 
@@ -271,23 +275,42 @@ class Bot:
     def api(self) -> API:
         return self._api
 
+    @staticmethod
+    def _parse_msg_event(msg: dict) -> MessageEvent:
+        doc = Document(**msg['message']['document']) if msg['message'].get('document') else None
+        return MessageEvent(
+            update_id=msg['update_id'],
+            message=Message(message_id=msg['message']['message_id'],
+                            from_=FromUser(**msg['message']['from']),
+                            date=msg['message']['date'],
+                            text=msg['message'].get('text', None),
+                            entities=msg['message'].get('entities', []),
+                            chat=Chat(**msg['message']['chat']),
+                            document=doc)
+                            )
+
     def polling(self):
         last_update_id = None
         while True:
             try:
                 for update in self.api.get_updates(last_update_id):
-                    message = update.get('message')
-                    if not message:
-                        continue
-                    self._handle_callback(message)
-                    last_update_id = update['update_id'] + 1
+                    if update.get('message'):
+                        event = self._parse_msg_event(update)
+                        self._handle_callback(event.message)
+                        last_update_id = event.update_id + 1
             except Exception as e:
                 logging.exception(e)
             sleep(self.POLLING_INTERVAL)
 
-    def _handle_callback(self, message) -> None:
+    def _handle_callback(self, message: Message) -> None:
         for cb, rules in self._callbacks:
-            if all(all(cmp(message.get(key)) for key, cmp in rule.items()) for rule in rules):
+            for rule in rules:
+                try:
+                    if not rule(message):
+                        break
+                except Exception as e:
+                    logging.exception('Rule throw exc %s', e)
+            else:
                 cb(message)
 
     def on_message(self, *rules: T_RULE):

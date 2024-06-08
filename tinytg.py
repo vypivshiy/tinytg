@@ -1,8 +1,8 @@
 """
 Copyright (c) 2024 vypivshiy
-this code under the MIT License.
+this code under the UNLICENSE or MIT License.
 
-request code under the UNLICENSE or MIT
+request code under the UNLICENSE or MIT License.
 author: sesh
 source: https://github.com/sesh/thttp
 """

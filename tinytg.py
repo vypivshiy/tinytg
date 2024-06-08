@@ -16,7 +16,7 @@ from base64 import b64encode
 from collections import namedtuple
 from http.cookiejar import CookieJar
 from time import sleep
-from typing import Callable, Optional, List, Tuple, BinaryIO, NamedTuple
+from typing import Callable, Optional, List, Tuple, BinaryIO, NamedTuple, Iterable
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import (
@@ -266,10 +266,18 @@ class Bot:
     POLLING_INTERVAL = 1.0
 
     def __init__(self, token: str = read_env()["TOKEN"],
-                 polling_interval=read_env().get("POLLING_INTERVAL", '1.0')):
+                 polling_interval=read_env().get("POLLING_INTERVAL", '1.0'),
+                 global_rules: Iterable[T_RULE] = ()):
+        """main bot instance
+
+        :param token: bot token
+        :param polling_interval: polling update interval
+        :param global_rules: global bot rules (useful for admin filter, for example)
+        """
         self._callbacks: T_CALLBACKS = []
         self._api = API(token)
         self.POLLING_INTERVAL = float(polling_interval)
+        self._global_rules = global_rules
 
     @property
     def api(self) -> API:
@@ -302,15 +310,19 @@ class Bot:
                 logging.exception(e)
             sleep(self.POLLING_INTERVAL)
 
+    @staticmethod
+    def _is_rules_passed(m: Message, rules: Iterable[T_RULE]):
+        for rule in rules:
+            try:
+                if not rule(m):
+                    return False
+            except Exception as e:
+                logging.exception('Rule throw exc %s', e)
+        return True
+
     def _handle_callback(self, message: Message) -> None:
         for cb, rules in self._callbacks:
-            for rule in rules:
-                try:
-                    if not rule(message):
-                        break
-                except Exception as e:
-                    logging.exception('Rule throw exc %s', e)
-            else:
+            if self._is_rules_passed(message, self._global_rules) and self._is_rules_passed(message, rules):
                 cb(message)
 
     def on_message(self, *rules: T_RULE):

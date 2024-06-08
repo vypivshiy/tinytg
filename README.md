@@ -14,11 +14,10 @@ and other telegram bot api wrappers.**
 # Features
 
 - Module size have ~300 lines of code
-- ZERO dependencies, sent http request logic usage [thttp](https://github.com/sesh/thttp) (standard urllib wrapper)
-- Sending messages
-- Reply messages
+- ZERO dependencies, sent http request logic by [thttp](https://github.com/sesh/thttp) (standard urllib wrapper)
+- Sending/Reply messages
 - Sending a document, photo, audio, video, voice files
-- Primitive message events handling rules
+- handle message events by decorator
 - Primitive .env file reader
 
 # install
@@ -31,6 +30,20 @@ or via curl:
 
 ```sh
 curl https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py > tinytg.py
+```
+
+# hello-world
+
+```python
+from tinytg import Bot, Message, read_env
+
+bot = Bot(read_env()['TOKEN'])
+
+@bot.on_message()
+def hello(m: Message):
+    bot.api.send_message(m.chat.id, "HELLO, WORLD!")
+
+bot.polling()
 ```
 
 # Usage

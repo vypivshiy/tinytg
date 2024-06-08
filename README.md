@@ -30,7 +30,7 @@ wget https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py
 or via curl:
 
 ```sh
-curl wget https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py > tinytg.py
+curl https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py > tinytg.py
 ```
 
 # Usage

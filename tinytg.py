@@ -18,6 +18,7 @@ from urllib.request import (
 )
 from uuid import uuid4
 
+__VERSION__ = '1.0.0'
 Response = namedtuple("Response", "request content json status url headers cookiejar")
 NoRedirect = type('NoRedirect', (HTTPRedirectHandler,),
                   {'redirect_request': lambda self, req, fp, code, msg, headers, newurl: None})

@@ -1,8 +1,11 @@
+import re
+
 from tinytg import Bot, F_COMMAND, F_ALLOW_USERS, Message, F_IS_ATTACHMENT
 
 bot = Bot()
 
 # admin filter
+# past you telegram id here
 F_ADMINS = F_ALLOW_USERS(1, 2, 3, 4)
 
 # The rules accept Message structure (realize Update event messages
@@ -27,13 +30,20 @@ def admin(m: Message):
     bot.api.send_message(m.from_.id, "secret admin command!")
 
 
-@bot.on_message(F_COMMAND('/echo'))
-def echo(m: Message):
-    bot.api.reply_message(m.chat.id, m.message_id, f"your says: {m.text.lstrip('/echo ')}")
+# optional parse arguments from message callback
+@bot.on_message(F_COMMAND('/echo'),
+                parse_cb=lambda m: re.match(r'/echo (.*)', m.text).groups()
+                )
+def echo(m: Message, echo_msg: str = None):  # check success parse value
+    if echo_msg:
+        bot.api.reply_message(m.chat.id, m.message_id, f"your says: {echo_msg}")
+        return
+    bot.api.reply_message(m.chat.id, m.message_id, "please, provide text for /echo command")
+
 
 
 @bot.on_message(F_IS_ANAGRAM)
-def echo(m: Message):
+def anagram(m: Message):
     bot.api.send_message(m.from_.id, f"your said anagram `{m.text}`.")
 
 

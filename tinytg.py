@@ -16,7 +16,7 @@ from base64 import b64encode
 from collections import namedtuple
 from http.cookiejar import CookieJar
 from time import sleep
-from typing import Callable, Optional, List, Tuple, BinaryIO, NamedTuple, Iterable
+from typing import Callable, Optional, List, Tuple, BinaryIO, NamedTuple, Iterable, Any
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import (
@@ -27,6 +27,7 @@ from uuid import uuid4
 Response = namedtuple("Response", "request content json status url headers cookiejar")
 NoRedirect = type('NoRedirect', (HTTPRedirectHandler,),
                   {'redirect_request': lambda self, req, fp, code, msg, headers, newurl: None})
+
 
 # thttp
 def request(method, url, params=None, json=None, data=None, headers=None,
@@ -115,9 +116,8 @@ def _encode_multipart_formdata(files):
         filename = file.name
         mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
-        data += (
-                b"--" + boundary.encode() + b"\r\n"
-                                            b'Content-Disposition: form-data; name="' + key.encode() + b'"; filename="' + filename.encode() + b'"\r\n'
+        data += (b"--" + boundary.encode() + b"\r\n"
+                                             b'Content-Disposition: form-data; name="' + key.encode() + b'"; filename="' + filename.encode() + b'"\r\n'
                                                                                                                                               b"Content-Type: " + mime_type.encode() + b"\r\n\r\n"
                 + file_data + b"\r\n"
         )
@@ -141,6 +141,7 @@ def _parse_response(response, ulib_request, cookiejar, is_error=False):
     return Response(request=ulib_request, content=content, json=json_content, status=status,
                     url=response.geturl(), headers=headers, cookiejar=cookiejar)
 
+
 # telegram event types
 class Document(NamedTuple):
     file_name: str
@@ -149,6 +150,7 @@ class Document(NamedTuple):
     file_unique_id: str
     file_size: int
 
+
 class FromUser(NamedTuple):
     id: int
     is_bot: bool
@@ -156,11 +158,13 @@ class FromUser(NamedTuple):
     language_code: str
     username: Optional[str] = None
 
+
 class Chat(NamedTuple):
     id: int
     type: str
     first_name: str
     username: Optional[str] = None
+
 
 class Message(NamedTuple):
     message_id: int
@@ -171,6 +175,7 @@ class Message(NamedTuple):
     entities: Optional[List] = []
     document: Optional[Document] = None
 
+
 class MessageEvent(NamedTuple):
     update_id: int
     message: Message
@@ -178,8 +183,9 @@ class MessageEvent(NamedTuple):
 
 T_RULE = Callable[[Message], bool]
 T_RULES = Tuple[T_RULE, ...]
-T_MSG_EVENT = Callable[[Message], None]
-T_CALLBACKS = List[Tuple[T_MSG_EVENT, T_RULES]]
+T_MSG_EVENT = Callable[[Message, ...], None]
+T_PARSE_ARGS_CB = Callable[[Message], Tuple[Any, ...]]
+T_CALLBACKS = List[Tuple[T_MSG_EVENT, T_RULES, T_PARSE_ARGS_CB]]
 
 
 def read_env(env_file='.env'):
@@ -295,7 +301,7 @@ class Bot:
                             entities=msg['message'].get('entities', []),
                             chat=Chat(**msg['message']['chat']),
                             document=doc)
-                            )
+        )
 
     def polling(self):
         last_update_id = None
@@ -321,12 +327,29 @@ class Bot:
         return True
 
     def _handle_callback(self, message: Message) -> None:
-        for cb, rules in self._callbacks:
+        for cb, rules, parse_cb in self._callbacks:
             if self._is_rules_passed(message, self._global_rules) and self._is_rules_passed(message, rules):
-                cb(message)
+                try:
+                    args = parse_cb(message)
+                except Exception as e:
+                    logging.error('failed extract arguments')
+                    logging.exception("%s", e)
+                    args = ()
+                logging.debug('handling "%s" with args: %s', cb.__name__, args)
+                cb(message, *args)
 
-    def on_message(self, *rules: T_RULE):
+    def on_message(self,
+                   *rules: T_RULE,
+                   parse_cb: T_PARSE_ARGS_CB = lambda m: (),
+                   ):
+        """base message event handler decorator
+
+        :param parse_cb: optional parse arguments callback from message
+        :param rules: event activate rules
+        :return:
+        """
+
         def decorator(callback: T_MSG_EVENT) -> None:
-            self._callbacks.append((callback, rules))
+            self._callbacks.append((callback, rules, parse_cb))
 
         return decorator

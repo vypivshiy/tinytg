@@ -150,8 +150,9 @@ F_RE = lambda pattern: lambda m: bool(m['text']) and re.search(pattern, m['text'
 F_IS_ATTACHMENT = lambda m: bool(m['document'])
 try:
     _lvl = read_env('.env').get('LOG_LEVEL', 'DEBUG')
+    _lvl = getattr(logging, _lvl)
 except Exception as _:
-    logging.warning('failed read "LOG_LEVEL" key in .env file. set DEBUG mode')
+    logging.warning('failed read "LOG_LEVEL" key from .env file. set DEBUG mode')
     _lvl = logging.DEBUG
 logging.basicConfig(format='%(asctime)s [%(levelname)s] %(name)s: %(message)s', level=_lvl)
 logger = logging.getLogger()

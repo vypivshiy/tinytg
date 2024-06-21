@@ -16,10 +16,10 @@ F_ADMINS = F_ALLOW_USERS(1, 2, 3, 4)
 # invoke rule if a text is anagram (reversed text == base text)
 # eg: abba == abba[::-1]
 def F_IS_ANAGRAM(m: Message) -> bool:
-    return m.text and m.text.lower().strip() == m.text.lower().strip()[::-1]
+    return m['text'] and m['text'].lower().strip() == m['text'].lower().strip()[::-1]
 
 # or lambda style rule:
-# F_IS_ANAGRAM = lambda m: m.text and m.text.lower().strip() == m.text.lower().strip()[::-1]
+# F_IS_ANAGRAM = lambda m: m['text'] and m['text'].lower().strip() == m['text'].lower().strip()[::-1]
 
 
 # you can add multiple handler rules
@@ -27,29 +27,32 @@ def F_IS_ANAGRAM(m: Message) -> bool:
 # if F_ADMINS = True and command == '/admin' - activate
 @bot.on_message(F_ADMINS, F_COMMAND('/admin'))
 def admin(m: Message):
-    bot.api.send_message(m.from_.id, "secret admin command!")
+    # this lib provide autoextract chat_id from message:
+    bot.api.send_message("secret admin command!", m)
+    # or you can manually pass chatid/fromuser id keys
+    # bot.api.send_message("secret admin command!", chat_id=m['chat']['id'])
 
 
 # optional parse arguments from message callback
 @bot.on_message(F_COMMAND('/echo'),
-                parse_cb=lambda m: re.match(r'/echo (.*)', m.text).groups()
+                parse_cb=lambda m: re.match(r'/echo (.*)', m['text']).groups()
                 )
 def echo(m: Message, echo_msg: str = None):  # check success parse value
     if echo_msg:
-        bot.api.reply_message(m.chat.id, m.message_id, f"your says: {echo_msg}")
+        bot.api.reply_message(f"your says: {echo_msg}", m)
         return
-    bot.api.reply_message(m.chat.id, m.message_id, "please, provide text for /echo command")
+    bot.api.reply_message("please, provide text for /echo command", m)
 
 
 
 @bot.on_message(F_IS_ANAGRAM)
 def anagram(m: Message):
-    bot.api.send_message(m.from_.id, f"your said anagram `{m.text}`.")
+    bot.api.send_message(f"your said anagram `{m['text']}`.", m)
 
 
 @bot.on_message(F_ADMINS, F_COMMAND('/admin'))
 def secret_admin_panel(m: Message):
-    bot.api.send_message(m.from_.id, "wow, hallo admin!")
+    bot.api.send_message("wow, hallo admin!", m)
 
 
 @bot.on_message(F_COMMAND('/source'))
@@ -57,13 +60,13 @@ def send_code(m: Message):
     with open('tinytg.py', 'rb') as f:
         bot.api.send_document(f, m.from_.id)
 
-    bot.api.send_message(m.from_.id, "my source code :-)")
+    bot.api.send_message("my source code :-)", m)
 
 
 @bot.on_message(F_COMMAND('/img'))
 def send_image(m: Message):
     with open('img.png', 'rb') as f:
-        bot.api.send_photo(f, m.from_.id)
+        bot.api.send_photo(f, m)
 
 
 @bot.on_message(F_COMMAND('/help'))
@@ -76,11 +79,12 @@ def help_msg(m: Message):
 also, it answer, if your write anagram
     """
 
-    bot.api.send_message(m.from_.id, help_text)
+    bot.api.send_message(help_text, m)
 
 @bot.on_message(F_IS_ATTACHMENT)
 def handle_attachment(m: Message):
-    bot.api.send_message(m.from_.id, f"you send: {m.document.file_name}")
+    bot.api.send_message(f"you send: {m['document']['file_name']}", m)
+
 
 if __name__ == '__main__':
     bot.polling()  # run bot

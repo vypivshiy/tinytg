@@ -10,7 +10,7 @@ from base64 import b64encode
 from collections import namedtuple
 from http.cookiejar import CookieJar
 from time import sleep
-from typing import Callable, Optional, List, Tuple, BinaryIO, NamedTuple, Iterable, Any, TypedDict, Dict
+from typing import Callable, Optional, List, Tuple, BinaryIO, Iterable, Any, TypedDict, Dict, Union, overload
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import (
@@ -126,11 +126,12 @@ def read_env(env_file='.env'):
 # Used TypedDict + total=False instead of NamedTuple or dataclasses for next reasons:
 # 1. avoid a serialization issues
 # 2. work with any version of the Bot API without update API class
+# 3. get minimal IDE autocomplete
 _T_ENTITIES = List[Dict[str, Any]]
 Document = TypedDict("Document", {"file_name": str, "mime_type": str, "file_id": str, "file_unique_id": str, "file_size": int}, total=False)
 Chat = TypedDict("Chat", { "id": int, "type": str, "first_name": str, "username": Optional[str]}, total=False)
 From = TypedDict("From", {"id": int, "is_bot": bool, "first_name": str, "language_code": str, "username": Optional[str]}, total=False)
-Message = TypedDict("Message", {"message_id": int, "from": From, "data": int, "chat": Chat, "text": Optional[str], "entities": Optional[_T_ENTITIES], "document": Optional[Document]}, total=False)
+Message = TypedDict("Message", {"message_id": int, "from": From, "data": int, "chat": Chat, "text": str, "entities": _T_ENTITIES, "document": Document}, total=False)
 MessageEvent = TypedDict("MessageEvent", {"update_id": int, "message": Message}, total=False)
 
 # API typing
@@ -143,7 +144,7 @@ T_CALLBACKS = List[Tuple[T_MSG_EVENT, T_RULES, T_PARSE_ARGS_CB]]
 # rules shortcuts
 F_IS_BOT = lambda m: m['from']['is_bot'] == True
 F_IS_USER= lambda m: not F_IS_BOT(m)
-F_ALLOW_USERS = lambda *user_ids: lambda m: m['from']['id'] in user_ids
+F_ALLOW_USERS = lambda *user_ids: lambda m: m['chat']['id'] in user_ids
 F_COMMAND = lambda command: lambda m: bool(m['text']) and bool(re.match(command, m['text'])) and m['from']['is_bot'] == False
 F_RE = lambda pattern: lambda m: bool(m['text']) and re.search(pattern, m['text'])
 F_IS_ATTACHMENT = lambda m: bool(m['document'])
@@ -189,7 +190,15 @@ class API:
                 if i == max_tries:
                     raise e
                 sleep(1)
-
+                
+    @staticmethod
+    def _extract_chat_id(ctx):
+        return ctx['chat']['id'] if isinstance(ctx, dict) else ctx
+    
+    @staticmethod
+    def _extract_msg_id(ctx):
+        return ctx['message_id'] if isinstance(ctx, dict) else ctx
+        
     def request_file(self, api_method: str, files: Dict[str, BinaryIO], **data):
         # this api files sent cannot provide normal data form handling. send it as a params form
         return self.try_request('POST', api_method, files=files, **data)
@@ -197,26 +206,38 @@ class API:
     def get_updates(self, offset: Optional[int] = None):
         return self.try_request('POST', 'getUpdates', timeout=30, data={'offset': offset}).json['result']
 
-    def send_message(self, chat_id: int, text: str):
-        return self.try_request('POST', 'sendMessage', data={'chat_id': chat_id, 'text': text})
+    def send_message(self, text: str, chat_id: Union[Message, int]):
+        return self.try_request('POST', 'sendMessage', data={'chat_id': self._extract_chat_id(chat_id), 'text': text})
+    
+    @overload
+    def reply_message(self, text: str, chat_id: int, message_id: int):
+        pass
 
-    def reply_message(self, chat_id: int, message_id: int, text: str):
-        return self.try_request('POST', 'sendMessage', data={'chat_id': chat_id, 'text': text, 'reply_to_message_id': message_id})
+    @overload
+    def reply_message(self, text: str, chat_id: Message, message_id: Optional[int]=None):
+        pass
+    
+    def reply_message(self, text: str, chat_id: Union[Message, int], message_id: Optional[int] = None):
+        if not message_id and isinstance(chat_id, dict):
+            message_id = self._extract_msg_id(chat_id)
+        return self.try_request('POST', 'sendMessage', 
+                                data={'chat_id': self._extract_chat_id(chat_id), 'text': text, 
+                                      'reply_to_message_id': message_id})
+    
+    def send_document(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
+        return self.request_file('sendDocument', files={'document': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
 
-    def send_document(self, file_ctx: BinaryIO, chat_id: int):
-        return self.request_file('sendDocument', files={'document': file_ctx}, params={'chat_id': chat_id})
+    def send_photo(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
+        return self.request_file('sendPhoto', files={'photo': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
 
-    def send_photo(self, file_ctx: BinaryIO, chat_id: int):
-        return self.request_file('sendPhoto', files={'photo': file_ctx}, params={'chat_id': chat_id})
+    def send_audio(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
+        return self.request_file('sendAudio', files={'audio': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
 
-    def send_audio(self, file_ctx: BinaryIO, chat_id: int):
-        return self.request_file('sendAudio', files={'audio': file_ctx}, params={'chat_id': chat_id})
+    def send_video(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
+        return self.request_file('sendVideo', files={'video': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
 
-    def send_video(self, file_ctx: BinaryIO, chat_id: int):
-        return self.request_file('sendVideo', files={'video': file_ctx}, params={'chat_id': chat_id})
-
-    def send_voice(self, file_ctx: BinaryIO, chat_id: int):
-        return self.request_file('sendVoice', files={'voice': file_ctx}, params={'chat_id': chat_id})
+    def send_voice(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
+        return self.request_file('sendVoice', files={'voice': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
 
 
 class Bot:

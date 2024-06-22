@@ -18,7 +18,7 @@ from urllib.request import (
 )
 from uuid import uuid4
 
-__VERSION__ = '1.0.0'
+__VERSION__ = '1.1.0'
 Response = namedtuple("Response", "request content json status url headers cookiejar")
 NoRedirect = type('NoRedirect', (HTTPRedirectHandler,),
                   {'redirect_request': lambda self, req, fp, code, msg, headers, newurl: None})
@@ -43,7 +43,7 @@ def request(method, url, params=None, json=None, data=None, headers=None,
     headers = {k.lower(): v for k, v in headers.items()}
     url += f"?{urlencode(params)}" if params else ""
 
-    if method not in {"POST", "PATCH", "PUT", "GET"}:
+    if method not in {"POST", "PATCH", "PUT", "GET", "HEAD"}:
         raise ValueError("Unknown method type")
     if json and data:
         raise ValueError("Cannot provide both json and data parameters")
@@ -112,21 +112,25 @@ def _parse_response(response, ulib_request, cookiejar, is_error=False):
     status, content, headers = (response.code if is_error else response.getcode(), response.read(),
                                 {k.lower(): v for k, v in response.info().items()})
     content = gzip.decompress(content) if "gzip" in headers.get("content-encoding", "") else content
-    json_content =  json_lib.loads(content) if "application/json" in headers.get("content-type", "").lower() and content else None
-    return Response(request=ulib_request, content=content, json=json_content, status=status, url=response.geturl(), 
+    json_content = json_lib.loads(content) if "application/json" in headers.get("content-type", "").lower() and content else None
+    return Response(request=ulib_request, content=content, json=json_content, status=status, url=response.geturl(),
                     headers=headers, cookiejar=cookiejar)
 
 
-def read_env(env_file='.env'):
+def read_env(env_file='.env') -> Dict[str, str]:
     """simple env files reader"""
+    # note: this very simple form and not coverage several cases
+    # 1. ignore comments (# )
+    # 2. split by '=' and strip whitespaces
     with open(env_file, 'r') as f:
         return {k.strip(): v.strip() for k, v in (line.split('=', 1) for line in f if line.strip() and not line.strip().startswith('#'))}
 
-# telegram event types    
+
 # Used TypedDict + total=False instead of NamedTuple or dataclasses for next reasons:
-# 1. avoid a serialization issues
-# 2. work with any version of the Bot API without update API class
-# 3. get minimal IDE autocomplete
+# 1. avoid a serialization and validation issues (receive non message events or botapi update broke it)
+# 2. work with any version of the Bot API without update API types
+# 3. get minimal autocomplete support in IDE
+# telegram event types
 _T_ENTITIES = List[Dict[str, Any]]
 Document = TypedDict("Document", {"file_name": str, "mime_type": str, "file_id": str, "file_unique_id": str, "file_size": int}, total=False)
 Chat = TypedDict("Chat", { "id": int, "type": str, "first_name": str, "username": Optional[str]}, total=False)
@@ -134,18 +138,18 @@ From = TypedDict("From", {"id": int, "is_bot": bool, "first_name": str, "languag
 Message = TypedDict("Message", {"message_id": int, "from": From, "data": int, "chat": Chat, "text": str, "entities": _T_ENTITIES, "document": Document}, total=False)
 MessageEvent = TypedDict("MessageEvent", {"update_id": int, "message": Message}, total=False)
 
-# API typing
+# tinytg API typing
 T_RULE = Callable[[Message], bool]
 T_RULES = Tuple[T_RULE, ...]
 T_MSG_EVENT = Callable[[Message, ...], None]
 T_PARSE_ARGS_CB = Callable[[Message], Tuple[Any, ...]]
 T_CALLBACKS = List[Tuple[T_MSG_EVENT, T_RULES, T_PARSE_ARGS_CB]]
 
-# rules shortcuts
-F_IS_BOT = lambda m: m['from']['is_bot'] == True
-F_IS_USER= lambda m: not F_IS_BOT(m)
+# build-in common rules shortcuts for handle message events
+F_IS_BOT = lambda m: m['from']['is_bot'] is True
+F_IS_USER = lambda m: not F_IS_BOT(m)
 F_ALLOW_USERS = lambda *user_ids: lambda m: m['chat']['id'] in user_ids
-F_COMMAND = lambda command: lambda m: bool(m['text']) and bool(re.match(command, m['text'])) and m['from']['is_bot'] == False
+F_COMMAND = lambda command: lambda m: bool(m['text']) and bool(re.match(command, m['text'])) and m['from']['is_bot'] is False
 F_RE = lambda pattern: lambda m: bool(m['text']) and re.search(pattern, m['text'])
 F_IS_ATTACHMENT = lambda m: bool(m['document'])
 try:
@@ -156,6 +160,7 @@ except Exception as _:
     _lvl = logging.DEBUG
 logging.basicConfig(format='%(asctime)s [%(levelname)s] %(name)s: %(message)s', level=_lvl)
 logger = logging.getLogger()
+
 
 class API:
     BASE_URL = 'https://api.telegram.org/bot{}'
@@ -169,7 +174,7 @@ class API:
                 verify=True, redirect=True, cookiejar=None, basic_auth=None,
                 timeout=60, files=None
                 ):
-        """send request. other non-documented params simular as a requests library)
+        """send a telegram API request. other non-documented params simular as a requests library)
 
         :param method: HTTP method
         :param api_method: telegram API method
@@ -191,15 +196,15 @@ class API:
                 if i == max_tries:
                     raise e
                 sleep(1)
-                
+
     @staticmethod
     def _extract_chat_id(ctx):
         return ctx['chat']['id'] if isinstance(ctx, dict) else ctx
-    
+
     @staticmethod
     def _extract_msg_id(ctx):
         return ctx['message_id'] if isinstance(ctx, dict) else ctx
-        
+
     def request_file(self, api_method: str, files: Dict[str, BinaryIO], **data):
         # this api files sent cannot provide normal data form handling. send it as a params form
         return self.try_request('POST', api_method, files=files, **data)
@@ -209,22 +214,22 @@ class API:
 
     def send_message(self, text: str, chat_id: Union[Message, int]):
         return self.try_request('POST', 'sendMessage', data={'chat_id': self._extract_chat_id(chat_id), 'text': text})
-    
+
     @overload
     def reply_message(self, text: str, chat_id: int, message_id: int):
         pass
 
     @overload
-    def reply_message(self, text: str, chat_id: Message, message_id: Optional[int]=None):
+    def reply_message(self, text: str, chat_id: Message, message_id: Optional[int] = None):
         pass
-    
+
     def reply_message(self, text: str, chat_id: Union[Message, int], message_id: Optional[int] = None):
         if not message_id and isinstance(chat_id, dict):
             message_id = self._extract_msg_id(chat_id)
-        return self.try_request('POST', 'sendMessage', 
-                                data={'chat_id': self._extract_chat_id(chat_id), 'text': text, 
+        return self.try_request('POST', 'sendMessage',
+                                data={'chat_id': self._extract_chat_id(chat_id), 'text': text,
                                       'reply_to_message_id': message_id})
-    
+
     def send_document(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
         return self.request_file('sendDocument', files={'document': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
 
@@ -242,8 +247,8 @@ class API:
 
 
 class Bot:
-    def __init__(self, token: str = read_env()["TOKEN"],
-                 polling_interval: float =float(read_env().get("POLLING_INTERVAL", '1.0')),
+    def __init__(self, token: str,
+                 polling_interval: float = 1.0,
                  global_rules: Iterable[T_RULE] = ()):
         """main bot instance
 
@@ -254,7 +259,12 @@ class Bot:
         self._callbacks: T_CALLBACKS = []
         self._api = API(token)
         self.POLLING_INTERVAL = polling_interval
-        self._global_rules = global_rules
+        self._global_rules: List[T_RULE] = list(global_rules)
+        self._commands = {"commands": []}
+
+    @property
+    def global_rules(self) -> List[T_RULE]:
+        return self._global_rules
 
     @property
     def api(self) -> API: return self._api
@@ -268,7 +278,7 @@ class Bot:
         return self.polling()
 
     def polling(self):
-        last_update_id, _ = None, logger.debug('start bot')
+        last_update_id, _, _ = None, self._bind_commands(), logger.debug('start bot')
         while True:
             try:
                 for update in self.api.get_updates(last_update_id):
@@ -280,19 +290,25 @@ class Bot:
                 logger.exception(e)
             sleep(self.POLLING_INTERVAL)
 
+    def _bind_commands(self):
+        if self._commands['commands']:
+            self.api.request("POST", "setMyCommands", json=self._commands)
+
     @staticmethod
-    def _is_rules_passed(m: Message, rules: Iterable[T_RULE]):
+    def _check_rules(m: Message, rules: Iterable[T_RULE]):
+        # rules works as AND logic
         for rule in rules:
             try:
                 if not rule(m):
                     return False
             except Exception as e:
                 logger.exception('Rule throw exc %s', e)
+                return False
         return True
 
     def _handle_callback(self, message: Message) -> None:
         for cb, rules, parse_cb in self._callbacks:
-            if self._is_rules_passed(message, self._global_rules) and self._is_rules_passed(message, rules):
+            if self._check_rules(message, self._global_rules) and self._check_rules(message, rules):
                 try:
                     args = parse_cb(message)
                 except Exception as e:
@@ -309,3 +325,7 @@ class Bot:
         def decorator(callback: T_MSG_EVENT) -> None:
             self._callbacks.append((callback, rules, parse_cb))
         return decorator
+
+    def set_command(self, command: str, description: str):
+        """bind commands in bot"""
+        self._commands["commands"].append({"command": command, "description": description})

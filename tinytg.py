@@ -10,7 +10,7 @@ from base64 import b64encode
 from collections import namedtuple
 from http.cookiejar import CookieJar
 from time import sleep
-from typing import Callable, Optional, List, Tuple, BinaryIO, Iterable, Any, TypedDict, Dict, Union, overload
+from typing import Callable, Optional, List, Tuple, BinaryIO, Iterable, Any, TypedDict, Dict, Union, overload, Pattern
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import (
@@ -145,13 +145,79 @@ T_MSG_EVENT = Callable[[Message, ...], None]
 T_PARSE_ARGS_CB = Callable[[Message], Tuple[Any, ...]]
 T_CALLBACKS = List[Tuple[T_MSG_EVENT, T_RULES, T_PARSE_ARGS_CB]]
 
+
 # build-in common rules shortcuts for handle message events
-F_IS_BOT = lambda m: m['from']['is_bot'] is True
-F_IS_USER = lambda m: not F_IS_BOT(m)
-F_ALLOW_USERS = lambda *user_ids: lambda m: m['chat']['id'] in user_ids
-F_COMMAND = lambda command: lambda m: bool(m['text']) and bool(re.match(command, m['text'])) and m['from']['is_bot'] is False
-F_RE = lambda pattern: lambda m: bool(m['text']) and re.search(pattern, m['text'])
-F_IS_ATTACHMENT = lambda m: bool(m['document'])
+def F_IS_BOT(m: Message) -> bool: 
+    """return true if message sent by bot"""
+    return m["from"]["is_bot"] is True
+
+
+def F_IS_USER(m: Message) -> bool:
+    """return true if message sent by user"""
+    return not F_IS_BOT(m)
+
+
+def F_ALLOW_USERS(*user_ids: int) -> T_RULE:
+    """return true if message send from chat_id or user_id from user_ids sequence
+
+    eg:
+
+    >>> F_ALLOW_USERS(1,2,3)({"chat": {"id": 1}})
+    True
+    >>> F_ALLOW_USERS(1,2,3)({"chat": {"id": 4}})
+    False
+    """
+    def wrapper(m: Message) -> bool:
+        return m["chat"]["id"] in user_ids
+    return wrapper
+
+
+def F_COMMAND(pattern: Union[str, Pattern[str]], allow_bot: bool = False) -> T_RULE:
+    """match message text by re.match rule:
+
+    :param pattern: regex pattern
+    :param allow_bot: handle rule from bot messages (default False)
+    
+    eg:
+        >>> F_COMMAND("/start")({"text": "/start", "from": {"is_bot": True}})
+        True
+        >>> F_COMMAND("ok, /start")({"text": "/start", "from": {"is_bot": True}})
+        False
+        >>> F_COMMAND("/start")({"text": "/start", "from": {"is_bot": False}})
+        False
+    """
+    def wrapper(m: Message) -> bool:
+        # check if text is not none
+        expr = bool(m.get("text", None)) and bool(re.match(pattern, m['text']))
+        return expr if expr and allow_bot else expr and not F_IS_BOT(m)
+    return wrapper
+
+
+def F_RE(pattern: Union[str, Pattern[str]], allow_bot: bool = False) -> T_RULE:
+    """match message text by re.search rule:
+
+    :param pattern: regex pattern
+    :param allow_bot: handle rule from bot messages (default False)
+
+        eg:
+            >>> F_RE("/start")({"text": "/start", "from": {"is_bot": True}})
+            True
+            >>> F_RE("ok, /start")({"text": "/start", "from": {"is_bot": True}})
+            True
+            >>> F_RE("/start")({"text": "/start", "from": {"is_bot": False}})
+            True
+    """
+    def wrapper(m: Message) -> bool:
+        expr = bool(m['text']) and bool(re.search(pattern, m['text']))
+        return expr if expr and allow_bot else expr and not F_IS_BOT(m)
+    return wrapper
+    
+def F_IS_ATTACHMENT(m: Message) -> bool:
+    """return True if message contains attachment"""
+    # MAYBE not contains this key
+    return bool(m.get('document', None))
+
+
 try:
     _lvl = read_env('.env').get('LOG_LEVEL', 'DEBUG')
     _lvl = getattr(logging, _lvl)

@@ -1,8 +1,8 @@
 import re
 
-from tinytg import Bot, F_COMMAND, F_ALLOW_USERS, Message, F_IS_ATTACHMENT
+from tinytg import Bot, F_COMMAND, F_ALLOW_USERS, Message, F_IS_ATTACHMENT,read_env
 
-bot = Bot()
+bot = Bot(token=read_env()["TOKEN"])
 
 # admin filter
 # past you telegram id here
@@ -29,7 +29,7 @@ def F_IS_ANAGRAM(m: Message) -> bool:
 def admin(m: Message):
     # this lib provide autoextract chat_id from message:
     bot.api.send_message("secret admin command!", m)
-    # or you can manually pass chatid/fromuser id keys
+    # or you can manually pass chat.id/from.user id keys
     # bot.api.send_message("secret admin command!", chat_id=m['chat']['id'])
 
 
@@ -42,7 +42,6 @@ def echo(m: Message, echo_msg: str = None):  # check success parse value
         bot.api.reply_message(f"your says: {echo_msg}", m)
         return
     bot.api.reply_message("please, provide text for /echo command", m)
-
 
 
 @bot.on_message(F_IS_ANAGRAM)
@@ -58,7 +57,7 @@ def secret_admin_panel(m: Message):
 @bot.on_message(F_COMMAND('/source'))
 def send_code(m: Message):
     with open('tinytg.py', 'rb') as f:
-        bot.api.send_document(f, m.from_.id)
+        bot.api.send_document(f, m)
 
     bot.api.send_message("my source code :-)", m)
 
@@ -81,10 +80,20 @@ also, it answer, if your write anagram
 
     bot.api.send_message(help_text, m)
 
+
 @bot.on_message(F_IS_ATTACHMENT)
 def handle_attachment(m: Message):
     bot.api.send_message(f"you send: {m['document']['file_name']}", m)
 
+
+# binding commands suggestions
+bot.set_command("help", "show help message")
+bot.set_command("echo", "echo message")
+bot.set_command("img", "send image")
+bot.set_command("source", "send my source code :)")
+
+# you can set global rules for avoid duplicate code
+# bot.global_rules.append(F_ALLOW_USERS(1,2,3))
 
 if __name__ == '__main__':
     bot.polling()  # run bot

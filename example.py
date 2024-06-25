@@ -1,8 +1,12 @@
 import re
 
-from tinytg import Bot, F_COMMAND, F_ALLOW_USERS, Message, F_IS_ATTACHMENT,read_env
+from tinytg import Bot, F_COMMAND, F_ALLOW_USERS, Message, F_IS_ATTACHMENT, F_RPS_LIMITER, read_env
 
-bot = Bot(token=read_env()["TOKEN"])
+bot = Bot(token=read_env()["TOKEN"],
+          # optional run callback handlers in threads
+          # use_threads=True,
+          # max_threads=8, limit threads count
+          )
 
 # admin filter
 # past you telegram id here
@@ -25,7 +29,9 @@ def F_IS_ANAGRAM(m: Message) -> bool:
 # you can add multiple handler rules
 # its works via AND logic:
 # if F_ADMINS = True and command == '/admin' - activate
-@bot.on_message(F_ADMINS, F_COMMAND('/admin'))
+@bot.on_message(F_ADMINS,
+                F_RPS_LIMITER(1, 10.0),  # rate limiter rule
+                F_COMMAND('/admin'))
 def admin(m: Message):
     # this lib provide autoextract chat_id from message:
     bot.api.send_message("secret admin command!", m)
@@ -96,4 +102,4 @@ bot.set_command("source", "send my source code :)")
 # bot.global_rules.append(F_ALLOW_USERS(1,2,3))
 
 if __name__ == '__main__':
-    bot.polling()  # run bot
+    bot.run()

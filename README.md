@@ -15,22 +15,35 @@ and other telegram bot api wrappers and frameworks.**
 
 - ZERO dependencies
 - python 3.8+ support
-- Module size have ~300 lines of code
-- http request provided by [thttp](https://github.com/sesh/thttp) (standard urllib wrapper)
-- minimal shortcuts: 
+- simple, primitive: module have ~500 lines of code (docstrings and comments include)
+- http requests work on urllib (ty [thttp](https://github.com/sesh/thttp) project for wrapper <3)
+- minimal build-in shortcuts: 
   - Sending/Reply messages
   - Sending a document, photo, audio, video, voice files
+  - [binding commands](https://core.telegram.org/bots/api#setmycommands)
 - rules (filters) for handling message events
+  - F_IS_BOT - activate if is bot send message
+  - F_IS_USER - activate if is user send message
+  - F_ALLOW_USERS - activate, if is allowed user ids send message (for create admin/whitelist feature)
+  - F_COMMAND - check text message by startswith patter
+  - F_RE - check text message by regex
+  - F_IS_ATTACHMENT - check sending attachment
+  - F_RPS_LIMITER - simple request-per-second limiter
+  - or create custom rules by simple API function
+- thread-mode run callbacks (experimental)
+- parse arguments from text message
 - handle message events by decorator
 - Primitive .env file reader
 
 # install
 
+that is the pip? just copy or download single file, dude
+
 ```sh
-wget https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py
+wget https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py -O tinytg.py
 ```
 
-or via curl:
+via curl:
 
 ```sh
 curl https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py > tinytg.py
@@ -50,7 +63,7 @@ LOG_LEVEL=DEBUG
 from tinytg import Bot, Message, read_env
 
 bot = Bot(read_env()['TOKEN'])
-# or pass via argument (not recommended
+# or pass via argument (not recommended)
 # bot = Bot(token="MY-BOT-TOKEN")
 
 
@@ -60,5 +73,6 @@ def hello(m: Message):
 
 
 bot.run()
+```
 
 - See [example](example.py) code how-to usage

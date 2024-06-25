@@ -9,7 +9,7 @@ import gzip, logging, mimetypes, re, ssl, json as json_lib
 from base64 import b64encode
 from collections import namedtuple
 from http.cookiejar import CookieJar
-from time import sleep
+from time import sleep, time
 from typing import Callable, Optional, List, Tuple, BinaryIO, Iterable, Any, TypedDict, Dict, Union, overload, Pattern
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -17,8 +17,10 @@ from urllib.request import (
     HTTPCookieProcessor, HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 )
 from uuid import uuid4
+from threading import Thread, RLock, active_count as threads_active_count
+from collections import deque
 
-__VERSION__ = '1.1.0'
+__VERSION__ = '1.2.0'
 Response = namedtuple("Response", "request content json status url headers cookiejar")
 NoRedirect = type('NoRedirect', (HTTPRedirectHandler,),
                   {'redirect_request': lambda self, req, fp, code, msg, headers, newurl: None})
@@ -218,6 +220,26 @@ def F_IS_ATTACHMENT(m: Message) -> bool:
     return bool(m.get('document', None))
 
 
+def F_RPS_LIMITER(count: int, delay: float) -> T_RULE:
+    """RPS LIMITER rule. return False if limit is reached and ignore handle command
+
+    :param delay: wait seconds delay
+    :param count: object
+    """
+    rps_check_cb = rps_check(count, delay)
+    def is_rps_lock() -> bool:
+        state, rps_delay = rps_check_cb()
+        if state:
+            logger.info(f"RPS limit, wait, {rps_delay}")
+            return False
+        return True
+
+    def wrapper(_: Message) -> bool:
+        return is_rps_lock()
+
+    return wrapper
+
+
 try:
     _lvl = read_env('.env').get('LOG_LEVEL', 'DEBUG')
     _lvl = getattr(logging, _lvl)
@@ -312,21 +334,63 @@ class API:
         return self.request_file('sendVoice', files={'voice': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
 
 
+def rps_check(count: int, delay: float) -> Callable[[], Tuple[bool, float]]:
+    """Rate limiter that ensures a maximum number of `count` requests within `delay` seconds.
+
+    Returns False if request is allowed, True if it is denied.
+
+    usage:
+
+    rate_limiter = rps_check(5, 1)
+
+    for _ in range(10):
+        if rate_limiter():
+            print("Request denied")
+        else:
+            print("Request allowed")
+        time.sleep(0.1)  # Simulating time delay between requests
+    """
+    times = deque()
+
+    def is_rate_limit() -> Tuple[bool, float]:
+        current_time = time()
+        # clear timestamps
+        while times and current_time - times[0] >= delay:
+            times.popleft()
+        if len(times) < count:
+            times.append(current_time)
+            return False, 0
+        return True, current_time - times[0]
+    return is_rate_limit
+
+
 class Bot:
-    def __init__(self, token: str,
-                 polling_interval: float = 1.0,
-                 global_rules: Iterable[T_RULE] = ()):
+    def __init__(self,
+                 token: str,
+                 polling_interval: float = .5,
+                 global_rules: Iterable[T_RULE] = (),
+                 use_threads: bool = False,
+                 max_threads: int = 16
+                 ):
         """main bot instance
+
 
         :param token: bot token
         :param polling_interval: polling update interval
         :param global_rules: global bot rules (useful for admin filter, for example)
+        :param rps: <count>, <seconds> max requests count per second limiter. default 10 requests per 1s
+        :param use_threads: EXPERIMENTAL: run caught handlers in threads. default false
+        :param max_threads: max threads count
         """
         self._callbacks: T_CALLBACKS = []
         self._api = API(token)
+        self._commands = {"commands": []}  # for setCommands execute
+
         self.POLLING_INTERVAL = polling_interval
         self._global_rules: List[T_RULE] = list(global_rules)
-        self._commands = {"commands": []}
+        self._run_handles_in_threads = use_threads
+        self._max_threads = max_threads
+        self._lock = RLock()
 
     @property
     def global_rules(self) -> List[T_RULE]:
@@ -341,12 +405,16 @@ class Bot:
 
     def run(self):
         """polling alias method"""
-        return self.polling()
+        logger.debug('start bot')
+        if self._run_handles_in_threads:
+            return self._thread_polling()
+        return self._polling()
 
-    def polling(self):
-        last_update_id, _, _ = None, self._bind_commands(), logger.debug('start bot')
+    def _polling(self):
+        last_update_id, _ = None, self._bind_commands()
         while True:
             try:
+                sleep(self.POLLING_INTERVAL)
                 for update in self.api.get_updates(last_update_id):
                     if update.get('message'):
                         event = self._parse_msg_event(update)
@@ -354,7 +422,28 @@ class Bot:
                         last_update_id = event['update_id'] + 1
             except Exception as e:
                 logger.exception(e)
-            sleep(self.POLLING_INTERVAL)
+
+    def _thread_polling(self):
+        last_update_id, _ = None, self._bind_commands()
+        while True:
+            try:
+                sleep(self.POLLING_INTERVAL)
+                updates = self.api.get_updates(last_update_id)
+                for update in updates:
+                    if update.get('message'):
+                        event = self._parse_msg_event(update)
+                        self._r_lock_threads()
+                        Thread(target=self._handle_callback, args=(event['message'],)).start()
+                        last_update_id = event['update_id'] + 1
+            except Exception as e:
+                logger.exception(e)
+
+    def _r_lock_threads(self):
+        with self._lock:
+            while threads_active_count() >= self._max_threads:
+                self._lock.release()
+                sleep(0.1)
+                self._lock.acquire()
 
     def _bind_commands(self):
         if self._commands['commands']:

@@ -15,8 +15,8 @@ and other telegram bot api wrappers and frameworks.**
 
 - ZERO dependencies
 - python 3.8+ support
-- simple, primitive: module have ~500 lines of code (docstrings and comments include)
-- http requests work on urllib (ty [thttp](https://github.com/sesh/thttp) project for wrapper <3)
+- simple, primitive: module have one file with less than 1000 lines of code (docstrings and comments include)
+- http requests work on standard urllib (ty [thttp](https://github.com/sesh/thttp) project for wrapper <3)
 - minimal build-in shortcuts: 
   - Sending/Reply messages
   - Sending a document, photo, audio, video, voice files
@@ -30,10 +30,11 @@ and other telegram bot api wrappers and frameworks.**
   - F_IS_ATTACHMENT - check sending attachment
   - F_RPS_LIMITER - simple request-per-second limiter
   - or create custom rules by simple API function
+- simple background tasks runner
 - thread-mode run callbacks (experimental)
-- parse arguments from text message
+- parse arguments from message event
 - handle message events by decorator
-- Primitive .env file reader
+- primitive .env file reader
 
 # install
 
@@ -54,15 +55,17 @@ curl https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py > tinytg.
 
 ```env
 TOKEN=YOUR_BOT_TOKEN
-POLLING_INTERVAL=1
-# DEBUG, ERROR, INFO, ....
-LOG_LEVEL=DEBUG
+# any secret config files
+ADMIN_IDS=1000,2000
+# ...
 ```
 
 ```python
-from tinytg import Bot, Message, read_env
+from tinytg import Bot, Message, load_dotenv
+import os
 
-bot = Bot(read_env()['TOKEN'])
+load_dotenv()
+bot = Bot(os.environ['TOKEN'])
 # or pass via argument (not recommended)
 # bot = Bot(token="MY-BOT-TOKEN")
 

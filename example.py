@@ -1,8 +1,11 @@
 import re
+from datetime import timedelta
+import os
+from tinytg import Bot, F_COMMAND, F_ALLOW_USERS, Message, F_IS_ATTACHMENT, F_RPS_LIMITER, load_dotenv
 
-from tinytg import Bot, F_COMMAND, F_ALLOW_USERS, Message, F_IS_ATTACHMENT, F_RPS_LIMITER, read_env
+load_dotenv()
 
-bot = Bot(token=read_env()["TOKEN"],
+bot = Bot(token=os.environ["TOKEN"],
           # optional run callback handlers in threads
           # use_threads=True,
           # max_threads=8, limit threads count
@@ -92,6 +95,19 @@ def handle_attachment(m: Message):
     bot.api.send_message(f"you send: {m['document']['file_name']}", m)
 
 
+# simple background tasks.
+# all BG tasks runs on DAEMON MODE
+@bot.on_background(5)
+def example_bg_task():
+    print("TEST BG TASK 123")
+
+
+# it accepts timedelta
+@bot.on_background(timedelta(minutes=1))
+def example_bg_task2():
+    print("TIMEDELTA BG TEST")
+
+
 # binding commands suggestions
 bot.set_command("help", "show help message")
 bot.set_command("echo", "echo message")
@@ -100,6 +116,11 @@ bot.set_command("source", "send my source code :)")
 
 # you can set global rules for avoid duplicate code
 # bot.global_rules.append(F_ALLOW_USERS(1,2,3))
+
+# logger configuration
+# from tinytg import logger
+# import logging
+# logger.setLevel(logging.INFO)
 
 if __name__ == '__main__':
     bot.run()

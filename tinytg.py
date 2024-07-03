@@ -5,9 +5,11 @@ source: https://github.com/vypivshiy/tinytg
 request code under the UNLICENSE or MIT License.
 source: https://github.com/sesh/thttp
 """
+import datetime
 import gzip, logging, mimetypes, re, ssl, json as json_lib
 from base64 import b64encode
 from collections import namedtuple
+from functools import wraps
 from http.cookiejar import CookieJar
 from time import sleep, time
 from typing import Callable, Optional, List, Tuple, BinaryIO, Iterable, Any, TypedDict, Dict, Union, overload, Pattern
@@ -17,10 +19,10 @@ from urllib.request import (
     HTTPCookieProcessor, HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 )
 from uuid import uuid4
-from threading import Thread, RLock, active_count as threads_active_count
+from threading import Thread, RLock, enumerate as threads_enumerate
 from collections import deque
 
-__VERSION__ = '1.3.0'
+__VERSION__ = '1.4.0'
 Response = namedtuple("Response", "request content json status url headers cookiejar")
 NoRedirect = type('NoRedirect', (HTTPRedirectHandler,),
                   {'redirect_request': lambda self, req, fp, code, msg, headers, newurl: None})
@@ -130,6 +132,12 @@ def read_env(env_file='.env') -> Dict[str, str]:
                 (line.split('=', 1) for line in f if line.strip() and not line.strip().startswith('#'))}
 
 
+def load_dotenv(env_file='.env') -> None:
+    """load env file to os.environ"""
+    import os
+    new_env = read_env(env_file)
+    os.environ.update(new_env)
+
 # Used TypedDict + total=False instead of NamedTuple or dataclasses for next reasons:
 # 1. avoid a serialization and validation issues (receive non message events or botapi update broke it)
 # 2. work with any version of the Bot API without update API types
@@ -154,7 +162,7 @@ T_RULES = Tuple[T_RULE, ...]
 T_MSG_EVENT = Callable[[Message, ...], None]
 T_PARSE_ARGS_CB = Callable[[Message], Tuple[Any, ...]]
 T_CALLBACKS = List[Tuple[T_MSG_EVENT, T_RULES, T_PARSE_ARGS_CB]]
-
+T_BG_INTERVAL = Union[float, datetime.datetime, datetime.timedelta]
 
 # build-in common rules shortcuts for handle message events
 def F_IS_BOT(m: Message) -> bool:
@@ -469,11 +477,16 @@ class ThreadBotApiHandler(BaseBotApiHandler):
         self._max_threads = max_threads
         self._lock = RLock()
 
+    @staticmethod
+    def active_threads() -> int:
+        # background tasks running in daemon mode - ignore this
+        return len([t for t in threads_enumerate() if not t.daemon])
+
     def _r_lock_threads(self):
         with self._lock:
-            while threads_active_count() >= self._max_threads:
+            while self.active_threads() >= self._max_threads:
                 self._lock.release()
-                sleep(0.1)
+                sleep(0.3)
                 self._lock.acquire()
 
     def polling(self):
@@ -507,6 +520,41 @@ class BotApiHandler(BaseBotApiHandler):
                 logger.exception(e)
 
 
+def background(interval: T_BG_INTERVAL):
+    if isinstance(interval, float) or isinstance(interval, int):
+        interval = datetime.timedelta(seconds=interval)
+    elif isinstance(interval, datetime.datetime) or isinstance(interval, datetime.timedelta):
+        interval = interval
+    else:
+        msg = f"Interval must be float, int, datetime, or timedelta, not {type(interval)}"
+        raise TypeError(msg)
+
+    if interval.seconds <= 0:
+        raise TypeError("interval must be bigger than 0")
+
+    def decorator(func: Callable[[], None]):
+        @wraps(func)
+        def wrapper():
+            def background_task():
+                next_run = datetime.datetime.now() + interval
+                while True:
+                    sleep(1)
+                    if datetime.datetime.now() >= next_run:
+                        try:
+                            logging.debug(f"Starting task {func.__name__}")
+                            func()
+                            logging.debug(f"Task {func.__name__} completed")
+                        except Exception as e:
+                            logging.error(f"Task {func.__name__} encountered an error: {e}")
+                        next_run += interval
+            task_thread = Thread(target=background_task, daemon=True)
+            task_thread.start()
+            return task_thread
+        return wrapper
+
+    return decorator
+
+
 class Bot:
     def __init__(self,
                  token: str,
@@ -536,31 +584,51 @@ class Bot:
             self._bot_handler = BotApiHandler(api=API(token),
                                               global_rules=global_rules,
                                               update_interval=polling_interval)
-        self._callbacks: T_CALLBACKS = []
         self._api = API(token)
         self._commands = {"commands": []}  # for setCommands execute
-
-        self.POLLING_INTERVAL = polling_interval
-        self._run_handles_in_threads = use_threads
-        self._max_threads = max_threads
-        self._lock = RLock()
+        self._bg_tasks: List[Thread] = []
 
     @property
     def api(self) -> API:
         return self._bot_handler.api
 
+    @property
+    def background_tasks(self) -> List[Thread]:
+        return self._bg_tasks
+
     def run(self):
         """polling alias method"""
-        logger.debug('start bot')
+        bot_info = self.api.request("GET", "getMe")
+        if bot_info.status != 200:
+            msg = f"API returned {bot_info.status}: {bot_info.content.decode()}"
+            raise ConnectionError(msg)
+        bot_info = bot_info.json['result']
+        log_msg = f"{bot_info['first_name']}, id: {bot_info['id']}, username: @{bot_info['username']}"
+        logger.debug('start bot %s', log_msg)
         return self._bot_handler.polling()
 
     def set_command(self, cmd: str, description: str):
+        """call setCommand method before start polling"""
         self._bot_handler.set_command(cmd, description)
 
     def on_message(self, *rules: T_RULE, parse_cb: T_PARSE_ARGS_CB = lambda m: ()):
+        """register telegram message event. invoke by passed rules and parse message by parse_cb argument"""
         def decorator(cb: T_MSG_EVENT):
             self._bot_handler.register_msg_event(cb, *rules, parse_cb=parse_cb)
         return decorator
 
     def register_message_event(self, cb: T_MSG_EVENT, *rules: T_RULE, parse_cb: T_PARSE_ARGS_CB = lambda m: ()):
         self._bot_handler.register_msg_event(cb, *rules, parse_cb=parse_cb)
+
+    def on_background(self, interval: T_BG_INTERVAL):
+        """register background daemon task. func should be not accept any arguments"""
+        def decorator(func):
+            task = background(interval)(func)()
+            self._bg_tasks.append(task)
+            return task
+        return decorator
+
+    def register_background_task(self, func: Callable[[], None], interval: T_BG_INTERVAL):
+        task = background(interval)(func)()
+        self._bg_tasks.append(task)
+        return task

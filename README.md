@@ -25,7 +25,7 @@ and other telegram bot api wrappers and frameworks.**
   - F_IS_BOT - activate if is bot send message
   - F_IS_USER - activate if is user send message
   - F_ALLOW_USERS - activate, if is allowed user ids send message (for create admin/whitelist feature)
-  - F_COMMAND - check text message by startswith patter
+  - F_COMMAND - check text message by startswith pattern
   - F_RE - check text message by regex
   - F_IS_ATTACHMENT - check sending attachment
   - F_RPS_LIMITER - simple request-per-second limiter
@@ -61,16 +61,16 @@ ADMIN_IDS=1000,2000
 ```
 
 ```python
-from tinytg import Bot, Message, load_dotenv
+from tinytg import Bot, Message, load_dotenv, F_IS_USER
 import os
 
 load_dotenv()
-bot = Bot(os.environ['TOKEN'])
+bot = Bot(os.getenv('TOKEN'))
 # or pass via argument (not recommended)
 # bot = Bot(token="MY-BOT-TOKEN")
 
 
-@bot.on_message()
+@bot.on_message(F_IS_USER)
 def hello(m: Message):
     bot.api.send_message("HELLO, WORLD!", m)
 
@@ -78,4 +78,4 @@ def hello(m: Message):
 bot.run()
 ```
 
-- See [example](example.py) code how-to usage
+- See [examples](examples) code how-to usage

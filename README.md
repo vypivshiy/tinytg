@@ -1,6 +1,6 @@
 # tinytg
 
-Minimal telegram botapi implementation with ZERO dependencies
+Minimal telegram botapi wrapper with ZERO dependencies
 
 # Why
 
@@ -9,15 +9,16 @@ Telegram bot api is one of the popular and simple solutions as an interface for 
 **This project is not intended to solve all use cases that can be achieved with aiogram, telegrinder, pyTelegramBotAPI 
 and other telegram bot api wrappers and frameworks.**
 
-**The intent is to provide a lightweight tool that simplifies some of the most common use cases for developers.**
+**The intent is to provide a lightweight tool that simplifies some of the most common use cases for developers.
+Use this project for simple, minimal automation :)**
 
 # Features
 
 - ZERO dependencies
 - python 3.8+ support
 - simple, primitive: module have one file with less than 1000 lines of code (docstrings and comments include)
-- http requests work on standard urllib (ty [thttp](https://github.com/sesh/thttp) project for wrapper <3)
-- minimal build-in shortcuts: 
+- http requests work on standard urllib (ty [thttp](https://github.com/sesh/thttp) project for wrapper <3). Reuse for t-party apis, http requests available
+- minimal build-in API shortcuts: 
   - Sending/Reply messages
   - Sending a document, photo, audio, video, voice files
   - [binding commands](https://core.telegram.org/bots/api#setmycommands)
@@ -55,7 +56,7 @@ curl https://raw.githubusercontent.com/vypivshiy/tinytg/main/tinytg.py > tinytg.
 
 ```env
 TOKEN=YOUR_BOT_TOKEN
-# any secret config files
+# any secrets
 ADMIN_IDS=1000,2000
 # ...
 ```
@@ -78,4 +79,9 @@ def hello(m: Message):
 bot.run()
 ```
 
-- See [examples](examples) code how-to usage
+# projects examples
+
+- [demo](examples/demo.py) - module features usage examples
+- [weather-bot](examples/weather_bot.py) - dummy weather bot (example inspired by BORING tutorials and show how to use http requests)
+- [wg-quick-bot](examples/wg-quick-bot.py) - tgbot interface for [angristan/wireguard-install](https://github.com/angristan/wireguard-install) script.
+For cheap VPS servers with 1CPU, 256mb ram and 5gb HDD/SDD :D

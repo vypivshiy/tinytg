@@ -20,7 +20,7 @@ from uuid import uuid4
 from threading import Thread, RLock, active_count as threads_active_count
 from collections import deque
 
-__VERSION__ = '1.2.0'
+__VERSION__ = '1.3.0'
 Response = namedtuple("Response", "request content json status url headers cookiejar")
 NoRedirect = type('NoRedirect', (HTTPRedirectHandler,),
                   {'redirect_request': lambda self, req, fp, code, msg, headers, newurl: None})
@@ -114,7 +114,8 @@ def _parse_response(response, ulib_request, cookiejar, is_error=False):
     status, content, headers = (response.code if is_error else response.getcode(), response.read(),
                                 {k.lower(): v for k, v in response.info().items()})
     content = gzip.decompress(content) if "gzip" in headers.get("content-encoding", "") else content
-    json_content = json_lib.loads(content) if "application/json" in headers.get("content-type", "").lower() and content else None
+    json_content = json_lib.loads(content) if "application/json" in headers.get("content-type",
+                                                                                "").lower() and content else None
     return Response(request=ulib_request, content=content, json=json_content, status=status, url=response.geturl(),
                     headers=headers, cookiejar=cookiejar)
 
@@ -125,7 +126,8 @@ def read_env(env_file='.env') -> Dict[str, str]:
     # 1. ignore comments (# )
     # 2. split by '=' and strip whitespaces
     with open(env_file, 'r') as f:
-        return {k.strip(): v.strip() for k, v in (line.split('=', 1) for line in f if line.strip() and not line.strip().startswith('#'))}
+        return {k.strip(): v.strip() for k, v in
+                (line.split('=', 1) for line in f if line.strip() and not line.strip().startswith('#'))}
 
 
 # Used TypedDict + total=False instead of NamedTuple or dataclasses for next reasons:
@@ -134,10 +136,16 @@ def read_env(env_file='.env') -> Dict[str, str]:
 # 3. get minimal autocomplete support in IDE
 # telegram event types
 _T_ENTITIES = List[Dict[str, Any]]
-Document = TypedDict("Document", {"file_name": str, "mime_type": str, "file_id": str, "file_unique_id": str, "file_size": int}, total=False)
-Chat = TypedDict("Chat", { "id": int, "type": str, "first_name": str, "username": Optional[str]}, total=False)
-From = TypedDict("From", {"id": int, "is_bot": bool, "first_name": str, "language_code": str, "username": Optional[str]}, total=False)
-Message = TypedDict("Message", {"message_id": int, "from": From, "data": int, "chat": Chat, "text": str, "entities": _T_ENTITIES, "document": Document}, total=False)
+Document = TypedDict("Document",
+                     {"file_name": str, "mime_type": str, "file_id": str, "file_unique_id": str, "file_size": int},
+                     total=False)
+Chat = TypedDict("Chat", {"id": int, "type": str, "first_name": str, "username": Optional[str]}, total=False)
+From = TypedDict("From",
+                 {"id": int, "is_bot": bool, "first_name": str, "language_code": str, "username": Optional[str]},
+                 total=False)
+Message = TypedDict("Message",
+                    {"message_id": int, "from": From, "data": int, "chat": Chat, "text": str, "entities": _T_ENTITIES,
+                     "document": Document}, total=False)
 MessageEvent = TypedDict("MessageEvent", {"update_id": int, "message": Message}, total=False)
 
 # tinytg API typing
@@ -149,7 +157,7 @@ T_CALLBACKS = List[Tuple[T_MSG_EVENT, T_RULES, T_PARSE_ARGS_CB]]
 
 
 # build-in common rules shortcuts for handle message events
-def F_IS_BOT(m: Message) -> bool: 
+def F_IS_BOT(m: Message) -> bool:
     """return true if message sent by bot"""
     return m["from"]["is_bot"] is True
 
@@ -169,8 +177,10 @@ def F_ALLOW_USERS(*user_ids: int) -> T_RULE:
     >>> F_ALLOW_USERS(1,2,3)({"chat": {"id": 4}})
     False
     """
+
     def wrapper(m: Message) -> bool:
         return m["chat"]["id"] in user_ids
+
     return wrapper
 
 
@@ -188,10 +198,12 @@ def F_COMMAND(pattern: Union[str, Pattern[str]], allow_bot: bool = False) -> T_R
         >>> F_COMMAND("/start")({"text": "/start", "from": {"is_bot": False}})
         False
     """
+
     def wrapper(m: Message) -> bool:
         # check if text is not none
         expr = bool(m.get("text", None)) and bool(re.match(pattern, m['text']))
         return expr if expr and allow_bot else expr and not F_IS_BOT(m)
+
     return wrapper
 
 
@@ -209,11 +221,14 @@ def F_RE(pattern: Union[str, Pattern[str]], allow_bot: bool = False) -> T_RULE:
             >>> F_RE("/start")({"text": "/start", "from": {"is_bot": False}})
             True
     """
+
     def wrapper(m: Message) -> bool:
         expr = bool(m['text']) and bool(re.search(pattern, m['text']))
         return expr if expr and allow_bot else expr and not F_IS_BOT(m)
+
     return wrapper
-    
+
+
 def F_IS_ATTACHMENT(m: Message) -> bool:
     """return True if message contains attachment"""
     # MAYBE not contains this key
@@ -227,6 +242,7 @@ def F_RPS_LIMITER(count: int, delay: float) -> T_RULE:
     :param count: object
     """
     rps_check_cb = rps_check(count, delay)
+
     def is_rps_lock() -> bool:
         state, rps_delay = rps_check_cb()
         if state:
@@ -319,19 +335,24 @@ class API:
                                       'reply_to_message_id': message_id})
 
     def send_document(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
-        return self.request_file('sendDocument', files={'document': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
+        return self.request_file('sendDocument', files={'document': file_ctx},
+                                 params={'chat_id': self._extract_chat_id(chat_id)})
 
     def send_photo(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
-        return self.request_file('sendPhoto', files={'photo': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
+        return self.request_file('sendPhoto', files={'photo': file_ctx},
+                                 params={'chat_id': self._extract_chat_id(chat_id)})
 
     def send_audio(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
-        return self.request_file('sendAudio', files={'audio': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
+        return self.request_file('sendAudio', files={'audio': file_ctx},
+                                 params={'chat_id': self._extract_chat_id(chat_id)})
 
     def send_video(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
-        return self.request_file('sendVideo', files={'video': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
+        return self.request_file('sendVideo', files={'video': file_ctx},
+                                 params={'chat_id': self._extract_chat_id(chat_id)})
 
     def send_voice(self, file_ctx: BinaryIO, chat_id: Union[Message, int]):
-        return self.request_file('sendVoice', files={'voice': file_ctx}, params={'chat_id': self._extract_chat_id(chat_id)})
+        return self.request_file('sendVoice', files={'voice': file_ctx},
+                                 params={'chat_id': self._extract_chat_id(chat_id)})
 
 
 def rps_check(count: int, delay: float) -> Callable[[], Tuple[bool, float]]:
@@ -361,96 +382,46 @@ def rps_check(count: int, delay: float) -> Callable[[], Tuple[bool, float]]:
             times.append(current_time)
             return False, 0
         return True, current_time - times[0]
+
     return is_rate_limit
 
 
-class Bot:
+class BaseBotApiHandler:
     def __init__(self,
-                 token: str,
-                 polling_interval: float = .5,
+                 api: API,
                  global_rules: Iterable[T_RULE] = (),
-                 use_threads: bool = False,
-                 max_threads: int = 16
-                 ):
-        """main bot instance
+                 update_interval: float = .5,
+                 **kwargs):
+        self._update_interval = update_interval
+        self._api = api
+        self._global_rules = global_rules
 
-
-        :param token: bot token
-        :param polling_interval: polling update interval
-        :param global_rules: global bot rules (useful for admin filter, for example)
-        :param rps: <count>, <seconds> max requests count per second limiter. default 10 requests per 1s
-        :param use_threads: EXPERIMENTAL: run caught handlers in threads. default false
-        :param max_threads: max threads count
-        """
+        self._rules: List[T_RULE] = []
         self._callbacks: T_CALLBACKS = []
-        self._api = API(token)
-        self._commands = {"commands": []}  # for setCommands execute
-
-        self.POLLING_INTERVAL = polling_interval
-        self._global_rules: List[T_RULE] = list(global_rules)
-        self._run_handles_in_threads = use_threads
-        self._max_threads = max_threads
-        self._lock = RLock()
+        # setCommands pre execute payload
+        self._commands = {"commands": []}
 
     @property
-    def global_rules(self) -> List[T_RULE]:
+    def api(self):
+        return self._api
+
+    @property
+    def global_rules(self):
         return self._global_rules
-
-    @property
-    def api(self) -> API: return self._api
 
     @staticmethod
     def _parse_msg_event(msg: dict) -> MessageEvent:
         return MessageEvent(**msg)
 
-    def run(self):
-        """polling alias method"""
-        logger.debug('start bot')
-        if self._run_handles_in_threads:
-            return self._thread_polling()
-        return self._polling()
-
-    def _polling(self):
-        last_update_id, _ = None, self._bind_commands()
-        while True:
-            try:
-                sleep(self.POLLING_INTERVAL)
-                for update in self.api.get_updates(last_update_id):
-                    if update.get('message'):
-                        event = self._parse_msg_event(update)
-                        self._handle_callback(event['message'])
-                        last_update_id = event['update_id'] + 1
-            except Exception as e:
-                logger.exception(e)
-
-    def _thread_polling(self):
-        last_update_id, _ = None, self._bind_commands()
-        while True:
-            try:
-                sleep(self.POLLING_INTERVAL)
-                updates = self.api.get_updates(last_update_id)
-                for update in updates:
-                    if update.get('message'):
-                        event = self._parse_msg_event(update)
-                        self._r_lock_threads()
-                        Thread(target=self._handle_callback, args=(event['message'],)).start()
-                        last_update_id = event['update_id'] + 1
-            except Exception as e:
-                logger.exception(e)
-
-    def _r_lock_threads(self):
-        with self._lock:
-            while threads_active_count() >= self._max_threads:
-                self._lock.release()
-                sleep(0.1)
-                self._lock.acquire()
+    def polling(self):
+        raise NotImplementedError
 
     def _bind_commands(self):
         if self._commands['commands']:
             self.api.request("POST", "setMyCommands", json=self._commands)
 
     @staticmethod
-    def _check_rules(m: Message, rules: Iterable[T_RULE]):
+    def _check_rules(m: Message, rules: Iterable[T_RULE]) -> bool:
         # rules works as AND logic
         for rule in rules:
             try:
@@ -471,16 +442,125 @@ class Bot:
                     args = ()
                 logger.debug('handling "%s" with args: %s', cb.__name__, args), cb(message, *args)
 
+    def register_msg_event(self, callback: T_MSG_EVENT, *rules: T_RULE, parse_cb: T_PARSE_ARGS_CB = lambda m: ()
+                           ) -> None:
+        self._callbacks.append((callback, rules, parse_cb))
+
     def on_message(self, *rules: T_RULE, parse_cb: T_PARSE_ARGS_CB = lambda m: ()):
         """base message event handler decorator
 
         :param parse_cb: optional parse arguments callback from message
         :param rules: event activate rules
         """
+
         def decorator(callback: T_MSG_EVENT) -> None:
-            self._callbacks.append((callback, rules, parse_cb))
+            self.register_msg_event(callback, *rules, parse_cb=parse_cb)
+
         return decorator
 
     def set_command(self, command: str, description: str):
         """bind commands in bot"""
         self._commands["commands"].append({"command": command, "description": description})
+
+
+class ThreadBotApiHandler(BaseBotApiHandler):
+    def __init__(self, api: API, max_threads: int, **kwargs):
+        super().__init__(api, **kwargs)
+        self._max_threads = max_threads
+        self._lock = RLock()
+
+    def _r_lock_threads(self):
+        with self._lock:
+            while threads_active_count() >= self._max_threads:
+                self._lock.release()
+                sleep(0.1)
+                self._lock.acquire()
+
+    def polling(self):
+        last_update_id, _ = None, self._bind_commands()
+        while True:
+            try:
+                sleep(self._update_interval)
+                updates = self.api.get_updates(last_update_id)
+                for update in updates:
+                    if update.get('message'):
+                        event = self._parse_msg_event(update)
+                        self._r_lock_threads()
+                        Thread(target=self._handle_callback, args=(event['message'],)).start()
+                        last_update_id = event['update_id'] + 1
+            except Exception as e:
+                logger.exception(e)
+
+
+class BotApiHandler(BaseBotApiHandler):
+    def polling(self):
+        last_update_id, _ = None, self._bind_commands()
+        while True:
+            try:
+                sleep(self._update_interval)
+                for update in self.api.get_updates(last_update_id):
+                    if update.get('message'):
+                        event = self._parse_msg_event(update)
+                        self._handle_callback(event['message'])
+                        last_update_id = event['update_id'] + 1
+            except Exception as e:
+                logger.exception(e)
+
+
+class Bot:
+    def __init__(self,
+                 token: str,
+                 polling_interval: float = .5,
+                 global_rules: Iterable[T_RULE] = (),
+                 use_threads: bool = False,
+                 max_threads: int = 16
+                 ):
+        """main bot instance
+
+
+        :param token: bot token
+        :param polling_interval: polling update interval
+        :param global_rules: global bot rules (useful for admin filter, for example)
+        :param use_threads: EXPERIMENTAL: run caught handlers in threads. default false
+        :param max_threads: max threads count
+        """
+        self._bot_handler: BaseBotApiHandler
+        if use_threads:
+            self._bot_handler = ThreadBotApiHandler(
+                api=API(token),
+                max_threads=max_threads,
+                global_rules=global_rules,
+                update_interval=polling_interval
+            )
+        else:
+            self._bot_handler = BotApiHandler(api=API(token),
+                                              global_rules=global_rules,
+                                              update_interval=polling_interval)
+        self._callbacks: T_CALLBACKS = []
+        self._api = API(token)
+        self._commands = {"commands": []}  # for setCommands execute
+
+        self.POLLING_INTERVAL = polling_interval
+        self._run_handles_in_threads = use_threads
+        self._max_threads = max_threads
+        self._lock = RLock()
+
+    @property
+    def api(self) -> API:
+        return self._bot_handler.api
+
+    def run(self):
+        """polling alias method"""
+        logger.debug('start bot')
+        return self._bot_handler.polling()
+
+    def set_command(self, cmd: str, description: str):
+        self._bot_handler.set_command(cmd, description)
+
+    def on_message(self, *rules: T_RULE, parse_cb: T_PARSE_ARGS_CB = lambda m: ()):
+        def decorator(cb: T_MSG_EVENT):
+            self._bot_handler.register_msg_event(cb, *rules, parse_cb=parse_cb)
+        return decorator
+
+    def register_message_event(self, cb: T_MSG_EVENT, *rules: T_RULE, parse_cb: T_PARSE_ARGS_CB = lambda m: ()):
+        self._bot_handler.register_msg_event(cb, *rules, parse_cb=parse_cb)

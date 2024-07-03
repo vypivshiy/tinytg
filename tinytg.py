@@ -22,7 +22,7 @@ from uuid import uuid4
 from threading import Thread, RLock, enumerate as threads_enumerate
 from collections import deque
 
-__VERSION__ = '1.4.0'
+__VERSION__ = '1.5.0'
 Response = namedtuple("Response", "request content json status url headers cookiejar")
 NoRedirect = type('NoRedirect', (HTTPRedirectHandler,),
                   {'redirect_request': lambda self, req, fp, code, msg, headers, newurl: None})
@@ -421,6 +421,20 @@ class BaseBotApiHandler:
     def _parse_msg_event(msg: dict) -> MessageEvent:
         return MessageEvent(**msg)
 
+    def listen_updates(self):
+        last_update_id = None
+        while True:
+            try:
+                sleep(self._update_interval)
+                updates = self.api.get_updates(last_update_id)
+                for update in updates:
+                    if update.get('message'):
+                        event = self._parse_msg_event(update)
+                        last_update_id = event['update_id'] + 1
+                        yield event
+            except Exception as e:
+                logger.exception(e)
+
     def polling(self):
         raise NotImplementedError
 
@@ -490,34 +504,16 @@ class ThreadBotApiHandler(BaseBotApiHandler):
                 self._lock.acquire()
 
     def polling(self):
-        last_update_id, _ = None, self._bind_commands()
-        while True:
-            try:
-                sleep(self._update_interval)
-                updates = self.api.get_updates(last_update_id)
-                for update in updates:
-                    if update.get('message'):
-                        event = self._parse_msg_event(update)
-                        self._r_lock_threads()
-                        Thread(target=self._handle_callback, args=(event['message'],)).start()
-                        last_update_id = event['update_id'] + 1
-            except Exception as e:
-                logger.exception(e)
+        self._bind_commands()
+        for event in self.listen_updates():
+            Thread(target=self._handle_callback, args=(event['message'],)).start()
 
 
 class BotApiHandler(BaseBotApiHandler):
     def polling(self):
-        last_update_id, _ = None, self._bind_commands()
-        while True:
-            try:
-                sleep(self._update_interval)
-                for update in self.api.get_updates(last_update_id):
-                    if update.get('message'):
-                        event = self._parse_msg_event(update)
-                        self._handle_callback(event['message'])
-                        last_update_id = event['update_id'] + 1
-            except Exception as e:
-                logger.exception(e)
+        self._bind_commands()
+        for event in self.listen_updates():
+            self._handle_callback(event['message'])
 
 
 def background(interval: T_BG_INTERVAL):
